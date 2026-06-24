@@ -13,6 +13,8 @@ def predict_using_models_trained_in_one_fold(
     run_df: pd.DataFrame,
     config: Dict,
     dm: pl.LightningDataModule,
+    cached_batches: list,
+    device: torch.device,
     top_k_models_to_use: int = 5,
 ) -> pd.DataFrame:
     """Make predictions averaged across top_k_models listed in mlflow run_df.
@@ -34,7 +36,6 @@ def predict_using_models_trained_in_one_fold(
 
     # Iterate over the models to make predictions
     predictions = []
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     for run_id in run_df.run_id:
         # Create a new model
         model = RiboNN(**config)
@@ -46,7 +47,10 @@ def predict_using_models_trained_in_one_fold(
         model.eval()
 
         with torch.no_grad():
-            batched_predictions = [model(batch.to(device)) for batch in dm.predict_dataloader()]
+            # Reuse the once-encoded batches (already on `device`) instead of rebuilding
+            # and re-encoding the dataloader for every model — that encoding is identical
+            # across models and is the dominant cost of the whole prediction.
+            batched_predictions = [model(batch) for batch in cached_batches]
 
         if isinstance(batched_predictions, list):
             batched_predictions = torch.cat(batched_predictions, dim=0)
@@ -85,6 +89,13 @@ def predict_using_nested_cross_validation_models(
     config["target_column_pattern"] = None
     dm = RiboNNDataModule(config)
 
+    # Encode the dataset ONCE and reuse across every fold/model. The per-nt one-hot
+    # encoding in DataFrameDataset.__getitem__ is the dominant cost and is identical for
+    # all models, so rebuilding the dataloader per model just re-pays it. Cached batches
+    # are moved to `device` here so each model pass is a pure forward on resident tensors.
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    cached_batches = [b.to(device) for b in dm.predict_dataloader()]
+
     all_prediction_dfs = []
     for test_fold in np.sort(run_df["params.test_fold"].unique()):
         test_fold_str = str(test_fold)
@@ -92,7 +103,7 @@ def predict_using_nested_cross_validation_models(
             "`params.test_fold` == @test_fold_str or `params.test_fold` == @test_fold"
         ).reset_index(drop=True)
         prediction_df = predict_using_models_trained_in_one_fold(
-            sub_run_df, config, dm, top_k_models_to_use
+            sub_run_df, config, dm, cached_batches, device, top_k_models_to_use
         )
         prediction_df["fold"] = int(test_fold)
 
