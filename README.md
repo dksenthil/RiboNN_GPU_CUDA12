@@ -17,10 +17,10 @@ weights are untouched. Predictions are **output-identical to upstream** — see
 | | |
 |---|---|
 | GPU | NVIDIA **H100 80 GB** (SXM, HBM3), compute capability **sm_90** |
-| Cluster | Rorqual (Digital Research Alliance of Canada) |
+| Cluster | hpc-cluster |
 | Toolchain | `StdEnv/2023`, `cuda/12.2`, `gcc/12.3` |
 | DL stack | Python 3.10.13, **torch 2.1.0+cu121**, pytorch-lightning 2.1.4 |
-| Workload | 20,384 PEX1 mRNA constructs (5′UTR + CDS + 3′UTR) |
+| Workload | 20,384 testseq mRNA constructs (5′UTR + CDS + 3′UTR) |
 
 ## The problem
 
@@ -79,7 +79,7 @@ correctness test**:
 - Patched and unpatched runs on **identical inputs, same device (CPU)** — same
   device isolates the caching change from CPU↔GPU float drift.
 - Compared across **all 79 `predicted_TE_*` columns** on 500 transcripts:
-  **max absolute difference = 0.000e+00** (Rorqual job `14676171`, ~11.5 min).
+  **max absolute difference = 0.000e+00** (hpc-cluster job `14676171`, ~11.5 min).
 
 Because the math is untouched, the match is exact, not merely within tolerance.
 The CUDA-12 path was separately shakedown-tested on a real H100 (job `14668661`):
